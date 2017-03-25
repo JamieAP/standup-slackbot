@@ -1,13 +1,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/nlopes/slack"
 	"github.com/ryanfaerman/fsm"
-	"errors"
 )
 
 const (
@@ -18,7 +20,10 @@ func main() {
 	slack := Slack{
 		slack.New("xoxb-152520612096-sPKLUWO7FEYg0cMmPofGUyWt"),
 		make(map[string]string, 0),
+		make(map[string]func(event *slack.MessageEvent), 0),
+		sync.Mutex{},
 	}
+	go slack.StartRealTimeMessagingListener()
 	members, err := slack.GetChannelMembers("C4PJYJEPM")
 	if err != nil {
 		log.Fatal(err)
@@ -69,6 +74,7 @@ func ReadyState(member string, standup StandupQuestionnaire, slack Slack) {
 
 func AskIfMemberReady(slack Slack, member string) (bool, error) {
 	resp := slack.AskQuestion(member, AreYouReady)
+	spew.Dump(resp)
 	if resp.err != nil {
 		return false, fmt.Errorf("Error asking question: %v", resp.err)
 	}

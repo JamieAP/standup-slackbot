@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
-	"time"
+	"log"
+	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/nlopes/slack"
+	"github.com/satori/go.uuid"
 )
 
 type QuestionResponse struct {
@@ -13,8 +16,45 @@ type QuestionResponse struct {
 }
 
 type Slack struct {
-	apiClient      *slack.Client
-	imChannelCache map[string]string
+	apiClient                *slack.Client
+	imChannelCache           map[string]string
+	messageEventHandlers     map[string]func(event *slack.MessageEvent)
+	messageEventHandlersLock sync.Mutex
+}
+
+func (s Slack) StartRealTimeMessagingListener() {
+	rtm := s.apiClient.NewRTM()
+	go rtm.ManageConnection()
+	s.AddMessageEventHandler(func(event *slack.MessageEvent) {
+		spew.Dump(event)
+	})
+	for msg := range rtm.IncomingEvents {
+		switch event := msg.Data.(type) {
+		case *slack.MessageEvent:
+			go func() {
+				for _, handler := range s.messageEventHandlers {
+					go handler(event)
+				}
+			}()
+		case *slack.RTMError:
+			log.Printf("Error received on RTM channel: %v", event.Error())
+		}
+	}
+}
+
+// returns a uuid identifying the event handler that can be used with RemoveMessageEventHandler
+func (s Slack) AddMessageEventHandler(handler func(event *slack.MessageEvent)) string {
+	s.messageEventHandlersLock.Lock()
+	defer s.messageEventHandlersLock.Unlock()
+	uuid := uuid.NewV4().String()
+	s.messageEventHandlers[uuid] = handler
+	return uuid
+}
+
+func (s Slack) RemoveMessageEventHandler(uuid string) {
+	s.messageEventHandlersLock.Lock()
+	defer s.messageEventHandlersLock.Unlock()
+	delete(s.messageEventHandlers, uuid)
 }
 
 func (s Slack) GetChannelMembers(channelId string) ([]string, error) {
@@ -27,34 +67,21 @@ func (s Slack) GetChannelMembers(channelId string) ([]string, error) {
 
 func (s Slack) AskQuestion(member string, question string) QuestionResponse {
 	respChan := make(chan QuestionResponse, 0)
-	askedAt := time.Now()
 	if err := s.SendMessage(member, question); err != nil {
 		return QuestionResponse{err: err}
 	}
-	go func() {
-		for {
-			msg, err := s.GetLatestDirectMessage(member)
-			if err != nil {
-				respChan <- QuestionResponse{
-					err: fmt.Errorf("Error getting latest direct message for %s: %v", member, err),
-				}
-				return
-			}
-			respTime, err := time.Parse(time.RFC3339, msg.EventTimestamp)
-			if err != nil {
-				respChan <- QuestionResponse{
-					err: fmt.Errorf("Error parsing message timestamp: %v", err),
-				}
-				return
-			}
-			if respTime.After(askedAt) {
-				respChan <- QuestionResponse{msg: *msg}
-				return
-			}
-			<-time.After(2 * time.Second)
+	channel, err := s.GetChannelForMemberIm(member)
+	if err != nil {
+		return QuestionResponse{err: err}
+	}
+	handlerUuid := s.AddMessageEventHandler(func(event *slack.MessageEvent) {
+		if event.Channel == *channel && event.User == member {
+			respChan <- QuestionResponse{msg: event.Msg}
 		}
-	}()
-	return <-respChan
+	})
+	resp := <-respChan
+	s.RemoveMessageEventHandler(handlerUuid)
+	return resp
 }
 
 func (s Slack) GetChannelForMemberIm(member string) (*string, error) {
@@ -78,17 +105,4 @@ func (s Slack) SendMessage(member string, msg string) error {
 		return fmt.Errorf("Error sending message to user %s: %v", member, err)
 	}
 	return nil
-}
-
-// TODO replace with RTM
-func (s Slack) GetLatestDirectMessage(member string) (*slack.Msg, error) {
-	channel, err := s.GetChannelForMemberIm(member)
-	if err != nil {
-		return nil, fmt.Errorf("Error getting direct message channel for user %s: %v", member, err)
-	}
-	history, err := s.apiClient.GetChannelHistory(*channel, slack.NewHistoryParameters())
-	if err != nil {
-		return nil, fmt.Errorf("Error getting channel history for %s: %v", *channel, err)
-	}
-	return &history.Messages[0].Msg, nil
 }
