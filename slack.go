@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/nlopes/slack"
 )
 
@@ -23,15 +25,36 @@ func (s Slack) GetChannelMembers(channelId string) ([]string, error) {
 	return channel.Members, nil
 }
 
-func (s Slack) AskQuestion(member string, question string) chan QuestionResponse {
+func (s Slack) AskQuestion(member string, question string) QuestionResponse {
 	respChan := make(chan QuestionResponse, 0)
+	askedAt := time.Now()
+	if err := s.SendMessage(member, question); err != nil {
+		return QuestionResponse{err: err}
+	}
 	go func() {
-		if err := s.SendMessage(member, question); err != nil {
-			respChan <- QuestionResponse{err: err}
-			return
+		for {
+			msg, err := s.GetLatestDirectMessage(member)
+			if err != nil {
+				respChan <- QuestionResponse{
+					err: fmt.Errorf("Error getting latest direct message for %s: %v", member, err),
+				}
+				return
+			}
+			respTime, err := time.Parse(time.RFC3339, msg.EventTimestamp)
+			if err != nil {
+				respChan <- QuestionResponse{
+					err: fmt.Errorf("Error parsing message timestamp: %v", err),
+				}
+				return
+			}
+			if respTime.After(askedAt) {
+				respChan <- QuestionResponse{msg: *msg}
+				return
+			}
+			<-time.After(2 * time.Second)
 		}
 	}()
-	return respChan
+	return <-respChan
 }
 
 func (s Slack) GetChannelForMemberIm(member string) (*string, error) {
@@ -57,14 +80,13 @@ func (s Slack) SendMessage(member string, msg string) error {
 	return nil
 }
 
+// TODO replace with RTM
 func (s Slack) GetLatestDirectMessage(member string) (*slack.Msg, error) {
 	channel, err := s.GetChannelForMemberIm(member)
 	if err != nil {
 		return nil, fmt.Errorf("Error getting direct message channel for user %s: %v", member, err)
 	}
-	parameters := slack.NewHistoryParameters()
-	parameters.Latest = "1"
-	history, err := s.apiClient.GetChannelHistory(*channel, parameters)
+	history, err := s.apiClient.GetChannelHistory(*channel, slack.NewHistoryParameters())
 	if err != nil {
 		return nil, fmt.Errorf("Error getting channel history for %s: %v", *channel, err)
 	}

@@ -1,16 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/nlopes/slack"
 	"github.com/ryanfaerman/fsm"
+	"errors"
 )
 
 const (
-	AreYouReady = "Hey, are you ready for standup? If you are say Yes or say No if you aren't taking part today."
+	AreYouReady = "Hey :) are you ready for standup? If you are say Yes. If you aren't taking part today say No."
 )
 
 func main() {
@@ -18,7 +19,7 @@ func main() {
 		slack.New("xoxb-152520612096-sPKLUWO7FEYg0cMmPofGUyWt"),
 		make(map[string]string, 0),
 	}
-	members, err := slack.GetChannelMembers("C4CSJ2XN3")
+	members, err := slack.GetChannelMembers("C4PJYJEPM")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,34 +68,17 @@ func ReadyState(member string, standup StandupQuestionnaire, slack Slack) {
 }
 
 func AskIfMemberReady(slack Slack, member string) (bool, error) {
-	msgSentAt := time.Now()
-	questionRespChan := slack.AskQuestion(member, AreYouReady)
-	readyResp := make(chan bool, 0)
-	go func() {
-		for {
-			select {
-			case resp := <-questionRespChan:
-				respTime, err := time.Parse(time.RFC3339, resp.msg.Timestamp)
-				if err != nil {
-					log.Printf("Error parsing message timestamp: %v", err)
-				}
-				if respTime.After(msgSentAt) {
-					msg := strings.ToLower(resp.msg.Text)
-					if msg == "yes" {
-						readyResp <- true
-						return
-					}
-					if msg == "no" {
-						readyResp <- false
-						return
-					}
-				}
-
-			case <-time.After(1 * time.Hour):
-				readyResp <- false
-				return
-			}
-		}
-	}()
-	return <-readyResp, nil
+	resp := slack.AskQuestion(member, AreYouReady)
+	if resp.err != nil {
+		return false, fmt.Errorf("Error asking question: %v", resp.err)
+	}
+	msg := strings.ToLower(resp.msg.Text)
+	if msg == "yes" {
+		return true, nil
+	}
+	if msg == "no" {
+		return false, nil
+	}
+	// todo ask again
+	return false, errors.New("Unrecognised response")
 }
