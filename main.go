@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nlopes/slack"
+	"github.com/ryanfaerman/fsm"
 )
 
 const (
@@ -24,7 +25,17 @@ func main() {
 
 	membersQuestionnaires := make(map[string]StandupQuestionnaire, 0)
 	for _, member := range members {
-		membersQuestionnaires[member] = StandupQuestionnaire{State: "pending"}
+		standup := StandupQuestionnaire{
+			State: "pending",
+			Machine: &fsm.Machine{
+				Rules:   &rules,
+				Subject: nil,
+			},
+		}
+		// I'd like to think I'm just using the library wrong with the chicken & egg problem here,
+		// but this is how the docs suggest it be used... TODO unfuck
+		standup.Machine.Subject = standup
+		membersQuestionnaires[member] = standup
 	}
 
 	for member, standupQuestions := range membersQuestionnaires {
@@ -45,12 +56,12 @@ func ReadyState(member string, standup StandupQuestionnaire, slack Slack) {
 		log.Printf("Error asking member %s if they are ready: %v", member, err)
 	}
 	if ready == false {
-		if err := standup.Apply(&rules).Transition("complete"); err != nil {
+		if err := standup.Machine.Transition("complete"); err != nil {
 			log.Printf("Error transitioning state: %v", err)
 		}
 		return
 	}
-	if err := standup.Apply(&rules).Transition("yesterday?"); err != nil {
+	if err := standup.Machine.Transition("yesterday?"); err != nil {
 		log.Printf("Error transitioning state: %v", err)
 	}
 }

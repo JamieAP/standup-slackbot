@@ -18,23 +18,13 @@ func init() {
 
 type StandupQuestionnaire struct {
 	State   fsm.State
-	machine *fsm.Machine
+	Machine *fsm.Machine
 }
 
-func (s *StandupQuestionnaire) CurrentState() fsm.State {
+func (s StandupQuestionnaire) CurrentState() fsm.State {
 	return s.State
 }
 
-func (s *StandupQuestionnaire) SetState(state fsm.State) {
+func (s StandupQuestionnaire) SetState(state fsm.State) {
 	s.State = state
 }
-
-func (s *StandupQuestionnaire) Apply(r *fsm.Ruleset) *fsm.Machine {
-	if s.machine == nil {
-		s.machine = &fsm.Machine{Subject: s}
-	}
-
-	s.machine.Rules = r
-	return s.machine
-}
-
