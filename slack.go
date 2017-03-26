@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/nlopes/slack"
 	"github.com/satori/go.uuid"
 )
@@ -22,12 +24,9 @@ type Slack struct {
 	messageEventHandlersLock sync.Mutex
 }
 
-func (s Slack) StartRealTimeMessagingListener() {
+func (s *Slack) StartRealTimeMessagingListener() {
 	rtm := s.apiClient.NewRTM()
 	go rtm.ManageConnection()
-	s.AddMessageEventHandler(func(event *slack.MessageEvent) {
-		spew.Dump(event)
-	})
 	for msg := range rtm.IncomingEvents {
 		switch event := msg.Data.(type) {
 		case *slack.MessageEvent:
@@ -43,7 +42,7 @@ func (s Slack) StartRealTimeMessagingListener() {
 }
 
 // returns a uuid identifying the event handler that can be used with RemoveMessageEventHandler
-func (s Slack) AddMessageEventHandler(handler func(event *slack.MessageEvent)) string {
+func (s *Slack) AddMessageEventHandler(handler func(event *slack.MessageEvent)) string {
 	s.messageEventHandlersLock.Lock()
 	defer s.messageEventHandlersLock.Unlock()
 	uuid := uuid.NewV4().String()
@@ -51,13 +50,13 @@ func (s Slack) AddMessageEventHandler(handler func(event *slack.MessageEvent)) s
 	return uuid
 }
 
-func (s Slack) RemoveMessageEventHandler(uuid string) {
+func (s *Slack) RemoveMessageEventHandler(uuid string) {
 	s.messageEventHandlersLock.Lock()
 	defer s.messageEventHandlersLock.Unlock()
 	delete(s.messageEventHandlers, uuid)
 }
 
-func (s Slack) GetChannelMembers(channelId string) ([]string, error) {
+func (s *Slack) GetChannelMembers(channelId string) ([]string, error) {
 	channel, err := s.apiClient.GetChannelInfo(channelId)
 	if err != nil {
 		return []string{}, fmt.Errorf("Error fetching channel info: %v", err)
@@ -65,17 +64,23 @@ func (s Slack) GetChannelMembers(channelId string) ([]string, error) {
 	return channel.Members, nil
 }
 
-func (s Slack) AskQuestion(member string, question string) QuestionResponse {
+func (s *Slack) AskQuestion(member string, question string) QuestionResponse {
 	respChan := make(chan QuestionResponse, 0)
 	if err := s.SendMessage(member, question); err != nil {
 		return QuestionResponse{err: err}
 	}
+	questionSentAt := time.Now()
 	channel, err := s.GetChannelForMemberIm(member)
 	if err != nil {
 		return QuestionResponse{err: err}
 	}
 	handlerUuid := s.AddMessageEventHandler(func(event *slack.MessageEvent) {
-		if event.Channel == *channel && event.User == member {
+		timestamp, err := parseTimestamp(event.Timestamp)
+		if err != nil {
+			respChan <- QuestionResponse{err: err}
+			return
+		}
+		if event.Channel == *channel && event.User == member && timestamp.After(questionSentAt) {
 			respChan <- QuestionResponse{msg: event.Msg}
 		}
 	})
@@ -84,7 +89,7 @@ func (s Slack) AskQuestion(member string, question string) QuestionResponse {
 	return resp
 }
 
-func (s Slack) GetChannelForMemberIm(member string) (*string, error) {
+func (s *Slack) GetChannelForMemberIm(member string) (*string, error) {
 	if channelId, ok := s.imChannelCache[member]; ok {
 		return &channelId, nil
 	}
@@ -96,7 +101,7 @@ func (s Slack) GetChannelForMemberIm(member string) (*string, error) {
 	return &channelId, nil
 }
 
-func (s Slack) SendMessage(member string, msg string) error {
+func (s *Slack) SendMessage(member string, msg string) error {
 	channel, err := s.GetChannelForMemberIm(member)
 	if err != nil {
 		return fmt.Errorf("Error getting direct message channel for user %s: %v", member, err)
@@ -105,4 +110,21 @@ func (s Slack) SendMessage(member string, msg string) error {
 		return fmt.Errorf("Error sending message to user %s: %v", member, err)
 	}
 	return nil
+}
+
+func parseTimestamp(timestamp string) (*time.Time, error) {
+	tsParts := strings.Split(timestamp, ".")
+	if len(tsParts) != 2 {
+		return nil, fmt.Errorf("Malformed unix timestamp: %s", timestamp)
+	}
+	secs, err := strconv.ParseInt(tsParts[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("Malformed unix timestamp: %s", timestamp)
+	}
+	nanos, err := strconv.ParseInt(tsParts[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("Malformed unix timestamp: %s", timestamp)
+	}
+	ts := time.Unix(secs, nanos)
+	return &ts, nil
 }
