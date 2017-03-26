@@ -23,8 +23,8 @@ const (
 func main() {
 	slack := &Slack{
 		slack.New("xoxb-152520612096-sPKLUWO7FEYg0cMmPofGUyWt"),
-		make(map[string]string, 0),
-		make(map[string]func(event *slack.MessageEvent), 0),
+		make(map[string]string),
+		make(map[string]func(event *slack.MessageEvent)),
 		sync.Mutex{},
 	}
 	go slack.StartRealTimeMessagingListener()
