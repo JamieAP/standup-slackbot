@@ -4,19 +4,28 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/nlopes/slack"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/utilitywarehouse/go-operational/op"
 )
 
 const (
 	NAME = "standup-slackbot"
 	DESC = "A slackbot for standups"
+)
+
+var (
+	gitHash string
 )
 
 func main() {
@@ -42,6 +51,12 @@ func main() {
 		EnvVar: "STANDUP_LENGTH_MINS",
 		Value:  60,
 	})
+	httpPort := app.Int(cli.IntOpt{
+		Name:   "http-port",
+		Desc:   "The HTTP port to listen on",
+		EnvVar: "HTTP_PORT",
+		Value:  8080,
+	})
 	timeZone := app.String(cli.StringOpt{
 		Name:   "time-zone",
 		Desc:   "The timezone IANA format e.g. Europe/London",
@@ -55,6 +70,7 @@ func main() {
 		Desc:   "Should we do a standup immediately at launch?",
 	})
 	app.Action = func() {
+		go initialiseHttpServer(*httpPort)
 		var lastStandupDay *int = nil
 		tz, err := time.LoadLocation(*timeZone)
 		if err != nil {
@@ -205,4 +221,29 @@ func BuildSlackReport(baseParams slack.PostMessageParameters, questionnaires map
 	}
 	postParams.Attachments = attachments
 	return postParams
+}
+
+func initialiseHttpServer(port int) {
+	router := mux.NewRouter()
+
+	router.NewRoute().PathPrefix("/__/").
+		Methods(http.MethodGet).
+		Handler(getOpHandler())
+
+	router.NewRoute().Path("/_/metrics").
+		Methods(http.MethodGet).
+		Handler(promhttp.Handler())
+
+	loggingHandler := handlers.LoggingHandler(os.Stdout, router)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), loggingHandler))
+}
+
+func getOpHandler() http.Handler {
+	return op.NewHandler(
+		op.NewStatus(NAME, DESC).
+			AddOwner("telecom", "#telecom").
+			SetRevision(gitHash).
+			ReadyAlways().
+			AddLink("VCS Repo", "https://github.com/utilitywarehouse/standup-slackbot"),
+	)
 }
