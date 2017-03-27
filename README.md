@@ -23,7 +23,7 @@ Options:
 
 ### What does it do?
 
-At a set time every day it will DM everyone in the standup channel, 
+At a set time every week day it will DM everyone in the standup channel, 
 ask them 4 questions and at the end post everyone's answers to the standup channel.
 
  ![example](http://j.mp/2nr3sqi)
