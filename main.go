@@ -57,12 +57,16 @@ func main() {
 		for {
 			<-time.After(1 * time.Minute)
 			now := time.Now()
-			if now.Weekday() < 1 || now.Weekday() > 5 {
+
+			isWeekend := now.Weekday() < 1 || now.Weekday() > 5
+			if isWeekend {
 				continue
 			}
 
 			day := now.Day()
-			if lastStandupDay != nil && *lastStandupDay == day {
+
+			standupAlreadyDone := lastStandupDay != nil && *lastStandupDay == day
+			if standupAlreadyDone {
 				continue
 			}
 
@@ -71,16 +75,18 @@ func main() {
 				log.Fatalf("Error parsing standup start time: %v", err)
 			}
 
-			if now.Hour() < *hour || now.Minute() > *mins {
+			notTimeYet := now.Hour() < *hour || now.Minute() > *mins
+			if notTimeYet {
 				continue
 			}
 
 			standupStartTime := time.Date(now.Year(), now.Month(), now.Day(), *hour, *mins, 0, 0, tz)
-			standupEndTime := time.Minute * time.Duration(*standupLengthMins)
+			standupDuration := time.Minute * time.Duration(*standupLengthMins)
 
 			// this prevents us doing standup in the case where we have no prior state (due to a restart)
 			// but have already done standup for the day
-			if lastStandupDay == nil && standupStartTime.Add(standupEndTime).Before(now) {
+			standupEndTimePassed := lastStandupDay == nil && standupStartTime.Add(standupDuration).Before(now)
+			if standupEndTimePassed {
 				continue
 			}
 
