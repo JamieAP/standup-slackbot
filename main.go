@@ -116,28 +116,35 @@ func parseStandupStartTime(standupTime *string) (*int, *int, error) {
 }
 
 func DoStandup(slackToken string, standupChannelName string, standupLengthMins int) error {
+	baseParams := slack.NewPostMessageParameters()
+	baseParams.Username = "Standup Bot"
+
 	slackClient := &Slack{
 		slack.New(slackToken),
 		make(map[string]string),
 		make(map[string]func(event *slack.MessageEvent)),
 		sync.Mutex{},
+		baseParams,
 	}
+
 	channelId, err := slackClient.GetChannelIdForChannel(standupChannelName)
 	if err != nil {
 		return fmt.Errorf("Could not get channel ID for channel %s: %v", standupChannelName, err)
 	}
+
 	members, err := slackClient.GetChannelMembers(*channelId)
 	if err != nil {
 		return fmt.Errorf("Error getting standup channel members: %v", err)
 	}
+
 	standup := NewStandup(slackClient, time.Now().Add(time.Minute*time.Duration(standupLengthMins)), members)
 	results := standup.Start()
-	log.Printf("Standup results: %+v", results)
+
 	for i := 0; i < 5; i++ {
 		_, _, err = slackClient.apiClient.PostMessage(
 			*channelId,
 			"Standup is finished, keep up the good work team!",
-			BuildSlackReport(results),
+			BuildSlackReport(baseParams, results),
 		)
 		if err == nil {
 			break
@@ -148,8 +155,8 @@ func DoStandup(slackToken string, standupChannelName string, standupLengthMins i
 	return nil
 }
 
-func BuildSlackReport(questionnaires map[string]*StandupQuestionnaire) slack.PostMessageParameters {
-	postParams := slack.NewPostMessageParameters()
+func BuildSlackReport(baseParams slack.PostMessageParameters, questionnaires map[string]*StandupQuestionnaire) slack.PostMessageParameters {
+	postParams := baseParams
 	attachments := make([]slack.Attachment, len(questionnaires))
 	for _, questionnaire := range questionnaires {
 		attachment := slack.Attachment{

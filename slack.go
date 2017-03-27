@@ -24,6 +24,7 @@ type Slack struct {
 	imChannelCache           map[string]string
 	messageEventHandlers     map[string]func(event *slack.MessageEvent)
 	messageEventHandlersLock sync.Mutex
+	BaseMessageParams        slack.PostMessageParameters
 }
 
 func (s *Slack) StartRealTimeMessagingListener(ctx context.Context) {
@@ -148,7 +149,7 @@ func (s *Slack) SendMessage(member string, msg string) (*time.Time, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Error getting direct message channel for user %s: %v", member, err)
 	}
-	_, ts, err := s.apiClient.PostMessage(*channel, msg, slack.NewPostMessageParameters())
+	_, ts, err := s.apiClient.PostMessage(*channel, msg, s.BaseMessageParams)
 	if err != nil {
 		return nil, fmt.Errorf("Error sending message to user %s: %v", member, err)
 	}
