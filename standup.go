@@ -94,6 +94,9 @@ type Standup struct {
 func NewStandup(slack *Slack, finishTime time.Time, members map[string]*slack.User) Standup {
 	membersQuestionnaires := make(map[string]*StandupQuestionnaire)
 	for memberId, memberInfo := range members {
+		if memberInfo.IsBot {
+			continue
+		}
 		questions := &StandupQuestionnaire{Member: memberInfo, State: "ready?"}
 		machine := fsm.New(fsm.WithRules(rules), fsm.WithSubject(questions))
 		questions.Machine = &machine
