@@ -156,7 +156,7 @@ func (s Standup) waitForCompletion() {
 }
 
 func CompleteState(member string, slack *Slack) {
-	if err := slack.SendMessage(member, Done); err != nil {
+	if _, err := slack.SendMessage(member, Done); err != nil {
 		log.Printf("Error telling member %s standup is complete: %v", member, err)
 	}
 }

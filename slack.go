@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nlopes/slack"
+	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
 )
 
@@ -87,11 +88,7 @@ func (s *Slack) GetChannelMembers(channelId string) (map[string]*slack.User, err
 
 func (s *Slack) AskQuestion(member string, question string, ctx context.Context) QuestionResponse {
 	respChan := make(chan QuestionResponse, 0)
-	questionSentAt := time.Now()
-	if err := s.SendMessage(member, question); err != nil {
-		return QuestionResponse{err: err}
-	}
-	channel, err := s.GetChannelForMemberIm(member)
+	ts, err := s.SendMessage(member, question)
 	if err != nil {
 		return QuestionResponse{err: err}
 	}
@@ -101,7 +98,13 @@ func (s *Slack) AskQuestion(member string, question string, ctx context.Context)
 			respChan <- QuestionResponse{err: err}
 			return
 		}
-		if event.Channel == *channel && event.User == member && timestamp.After(questionSentAt) {
+		channel, err := s.GetChannelForMemberIm(member)
+		if err != nil {
+			respChan <- QuestionResponse{err: err}
+		}
+		// due to Slack's timestamp precision, it's possible for time.After to return false if the messages are
+		// sent close together enough, thus !time.Before is used.
+		if event.Channel == *channel && event.User == member && !timestamp.Before(*ts) {
 			respChan <- QuestionResponse{msg: event.Msg}
 		}
 	})
@@ -127,15 +130,29 @@ func (s *Slack) GetChannelForMemberIm(member string) (*string, error) {
 	return &channelId, nil
 }
 
-func (s *Slack) SendMessage(member string, msg string) error {
+func (s *Slack) GetChannelIdForChannel(channelName string) (*string, error) {
+	channels, err := s.apiClient.GetChannels(true)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting channel list: %v", err)
+	}
+	for _, channel := range channels {
+		if channel.Name == channelName {
+			return &channel.ID, nil
+		}
+	}
+	return nil, errors.New("Channel not found")
+}
+
+func (s *Slack) SendMessage(member string, msg string) (*time.Time, error) {
 	channel, err := s.GetChannelForMemberIm(member)
 	if err != nil {
-		return fmt.Errorf("Error getting direct message channel for user %s: %v", member, err)
+		return nil, fmt.Errorf("Error getting direct message channel for user %s: %v", member, err)
 	}
-	if _, _, err := s.apiClient.PostMessage(*channel, msg, slack.NewPostMessageParameters()); err != nil {
-		return fmt.Errorf("Error sending message to user %s: %v", member, err)
+	_, ts, err := s.apiClient.PostMessage(*channel, msg, slack.NewPostMessageParameters())
+	if err != nil {
+		return nil, fmt.Errorf("Error sending message to user %s: %v", member, err)
 	}
-	return nil
+	return parseTimestamp(ts)
 }
 
 func parseTimestamp(timestamp string) (*time.Time, error) {

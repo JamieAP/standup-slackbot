@@ -1,41 +1,145 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"math"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/jawher/mow.cli"
 	"github.com/nlopes/slack"
 )
 
-func main() {
-	channel := "C4PUNBEMQ"
+const (
+	NAME = "standup-slackbot"
+	DESC = "A slackbot for standups"
+)
 
+func main() {
+	app := cli.App(NAME, DESC)
+	slackToken := app.String(cli.StringOpt{
+		Name:   "slack-token",
+		Desc:   "Slack API token",
+		EnvVar: "SLACK_TOKEN",
+	})
+	standupChannelName := app.String(cli.StringOpt{
+		Name:   "standup-channel",
+		Desc:   "The Slack channel to use for standups",
+		EnvVar: "STANDUP_CHANNEL",
+	})
+	standupTime := app.String(cli.StringOpt{
+		Name:   "standup-time",
+		Desc:   "The time standup should start in 24hr 00:00 format",
+		EnvVar: "STANDUP_TIME",
+	})
+	standupLengthMins := app.Int(cli.IntOpt{
+		Name:   "standup-length-mins",
+		Desc:   "The standup length time in minutes",
+		EnvVar: "STANDUP_LENGTH_MINS",
+		Value:  60,
+	})
+	timeZone := app.String(cli.StringOpt{
+		Name:   "time-zone",
+		Desc:   "The timezone IANA format e.g. Europe/London",
+		EnvVar: "TIME_ZONE",
+		Value:  "Europe/London",
+	})
+	app.Action = func() {
+		var lastStandupDay *int = nil
+		tz, err := time.LoadLocation(*timeZone)
+		if err != nil {
+			log.Fatalf("Error getting location for timezone: %v", err)
+		}
+		for {
+			<-time.After(1 * time.Minute)
+			now := time.Now()
+			if now.Weekday() < 1 || now.Weekday() > 5 {
+				continue
+			}
+
+			day := now.Day()
+			if lastStandupDay != nil && *lastStandupDay == day {
+				continue
+			}
+
+			hour, mins, err := parseStandupStartTime(standupTime)
+			if err != nil {
+				log.Fatalf("Error parsing standup start time: %v", err)
+			}
+
+			if now.Hour() < *hour || now.Minute() > *mins {
+				continue
+			}
+
+			standupStartTime := time.Date(now.Year(), now.Month(), now.Day(), *hour, *mins, 0, 0, tz)
+			standupEndTime := time.Minute * time.Duration(*standupLengthMins)
+
+			// this prevents us doing standup in the case where we have no prior state (due to a restart)
+			// but have already done standup for the day
+			if lastStandupDay == nil && standupStartTime.Add(standupEndTime).Before(now) {
+				continue
+			}
+
+			if err := DoStandup(*slackToken, *standupChannelName, *standupLengthMins); err != nil {
+				log.Fatalf("Error doing standup: %v", err)
+			}
+
+			lastStandupDay = &day
+		}
+	}
+	app.Run(os.Args)
+}
+
+func parseStandupStartTime(standupTime *string) (*int, *int, error) {
+	hoursAndMins := strings.Split(*standupTime, ":")
+	hour, err := strconv.ParseInt(hoursAndMins[0], 10, 8)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Could not parse hours from standup start time: %v", err)
+	}
+	mins, err := strconv.ParseInt(hoursAndMins[1], 10, 8)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Could not parse mins from standup start time: %v", err)
+	}
+	hourInt := int(hour)
+	minsInt := int(mins)
+	return &hourInt, &minsInt, nil
+}
+
+func DoStandup(slackToken string, standupChannelName string, standupLengthMins int) error {
 	slackClient := &Slack{
-		slack.New("xoxb-152520612096-sPKLUWO7FEYg0cMmPofGUyWt"),
+		slack.New(slackToken),
 		make(map[string]string),
 		make(map[string]func(event *slack.MessageEvent)),
 		sync.Mutex{},
 	}
-
-	members, err := slackClient.GetChannelMembers(channel)
+	channelId, err := slackClient.GetChannelIdForChannel(standupChannelName)
 	if err != nil {
-		log.Fatalf("Error getting standup channel members: %v", err)
+		return fmt.Errorf("Could not get channel ID for channel %s: %v", standupChannelName, err)
 	}
-
-	standup := NewStandup(slackClient, time.Now().Add(time.Hour*1), members)
+	members, err := slackClient.GetChannelMembers(*channelId)
+	if err != nil {
+		return fmt.Errorf("Error getting standup channel members: %v", err)
+	}
+	standup := NewStandup(slackClient, time.Now().Add(time.Minute*time.Duration(standupLengthMins)), members)
 	results := standup.Start()
-
-	_, _, err = slackClient.apiClient.PostMessage(
-		channel,
-		"Standup is finished, keep up the good work team!",
-		BuildSlackReport(results),
-	)
-
-	if err != nil {
+	log.Printf("Standup results: %+v", results)
+	for i := 0; i < 5; i++ {
+		_, _, err = slackClient.apiClient.PostMessage(
+			*channelId,
+			"Standup is finished, keep up the good work team!",
+			BuildSlackReport(results),
+		)
+		if err == nil {
+			break
+		}
 		log.Printf("Error posting standup result to Slack: %v", err)
-		log.Printf("Standup results: %+v", results)
+		<-time.After(time.Duration(3*math.Pow(2, float64(i+1))) * time.Second)
 	}
+	return nil
 }
 
 func BuildSlackReport(questionnaires map[string]*StandupQuestionnaire) slack.PostMessageParameters {
