@@ -14,10 +14,10 @@ import (
 const (
 	AreYouReady          = "Hey :) are you ready for standup? If you are say Yes. If you aren't taking part today say No."
 	NotUnderstoodYesOrNo = "Sorry, I didn't understand that, please say yes or no."
-	Yesterday            = "Let's get started, what did you get done yesterday?"
+	Yesterday            = "Let's get started, what did you get done since last standup?"
 	Today                = "Awesome, what are you working on today?"
 	FinishedWhen         = "Great, when do you think you'll be finished with that?"
-	Blockers             = "Is there anything blocking you or that could block you?"
+	Blockers             = "Is there anything blocking you?"
 	Done                 = "Thanks, have a great day!"
 )
 
