@@ -1,0 +1,32 @@
+machine:
+  services:
+    - docker
+  environment:
+    GOOS: "linux"
+    GOARCH: "amd64"
+    GODIST: "go1.8.linux-amd64.tar.gz"
+    IMPORT_PATH: "github.com/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME"
+  post:
+    - mkdir -p "~/download"
+    - test -e "~/download/$GODIST" || curl -o "~/download/$GODIST" https://storage.googleapis.com/golang/$GODIST
+    - sudo rm -rf /usr/local/go
+    - sudo tar -C /usr/local -xzf "~/download/$GODIST"
+
+dependencies:
+  pre:
+    - docker login -e none@none.com -u ${DOCKER_USER} -p ${DOCKER_PASS} registry.uw.systems
+
+general:
+  branches:
+    only:
+      - master
+test:
+  override:
+    - CGO_ENABLED=0 go build -a -ldflags "-X main.gitHash=$(git rev-parse HEAD) -s -extldflags '-static'"
+deployment:
+  master:
+    branch: master
+    commands:
+      - docker build --rm=true -t registry.uw.systems/telecom/standup-slackbot:latest .
+      - docker tag registry.uw.systems/telecom/standup-slackbot:latest registry.uw.systems/telecom/standup-slackbot:$CIRCLE_SHA1
+      - docker push registry.uw.systems/telecom/standup-slackbot
