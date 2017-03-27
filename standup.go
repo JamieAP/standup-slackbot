@@ -24,6 +24,7 @@ func init() {
 	rules.AddTransition(fsm.T{O: "today?", E: "finishedWhen?"})
 	rules.AddTransition(fsm.T{O: "finishedWhen?", E: "blockers?"})
 	rules.AddTransition(fsm.T{O: "blockers?", E: "complete"})
+	rules.AddTransition(fsm.T{O: "complete", E: "pending"})
 }
 
 type StandupQuestionnaire struct {
