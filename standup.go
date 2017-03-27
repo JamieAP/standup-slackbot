@@ -113,6 +113,10 @@ func (s Standup) Start() map[string]*StandupQuestionnaire {
 	for member, questions := range s.MemberStandupQuestionnaires {
 		go func(member string, questions *StandupQuestionnaire) {
 			for {
+				if s.Context.Err() != nil {
+					log.Printf("Context completed before member %s finished: %v", member, s.Context.Err())
+					return
+				}
 				switch questions.CurrentState() {
 				case "ready?":
 					s.readyState(member, questions, s.Slack)
