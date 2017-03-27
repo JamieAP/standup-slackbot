@@ -10,6 +10,7 @@ import (
 
 	"github.com/nlopes/slack"
 	"github.com/satori/go.uuid"
+	"github.com/pkg/errors"
 )
 
 type QuestionResponse struct {
@@ -84,9 +85,13 @@ func (s *Slack) AskQuestion(member string, question string) QuestionResponse {
 			respChan <- QuestionResponse{msg: event.Msg}
 		}
 	})
-	resp := <-respChan
-	s.RemoveMessageEventHandler(handlerUuid)
-	return resp
+	select {
+	case resp := <-respChan:
+		s.RemoveMessageEventHandler(handlerUuid)
+		return resp
+	case <-time.After(1 * time.Hour):
+		return QuestionResponse{err: errors.New("Member did not reply in time")}
+	}
 }
 
 func (s *Slack) GetChannelForMemberIm(member string) (*string, error) {

@@ -10,15 +10,7 @@ import (
 	"github.com/ryanfaerman/fsm"
 )
 
-const (
-	AreYouReady          = "Hey :) are you ready for standup? If you are say Yes. If you aren't taking part today say No."
-	NotUnderstoodYesOrNo = "Sorry, I didn't understand that, please say yes or no."
-	Yesterday            = "Let's get started, what did you get done yesterday?"
-	Today                = "Thanks, what are you working on today?"
-	FinishedWhen         = "Great, when do you think you'll be finished with that?"
-	Blockers             = "Is there anything blocking you or that could block you?"
-	Done                 = "Thanks, have a great day!"
-)
+
 
 func main() {
 	slack := &Slack{
@@ -33,7 +25,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	membersQuestionnaires := make(map[string]*StandupQuestionnaire, 0)
+	membersQuestionnaires := make(map[string]*StandupQuestionnaire)
 	for _, member := range members {
 		standup := &StandupQuestionnaire{State: "ready?"}
 		machine := fsm.New(fsm.WithRules(rules), fsm.WithSubject(standup))
@@ -58,6 +50,9 @@ func main() {
 				case "complete":
 					if err := slack.SendMessage(member, Done); err != nil {
 						log.Printf("Error telling member %s standup is complete: %v", member, err)
+					}
+					if err := standup.Machine.Transition("pending"); err != nil {
+						log.Printf("Error transitioning to pending: %v", err)
 					}
 					return
 				}
@@ -122,7 +117,7 @@ func ReadyState(member string, standup *StandupQuestionnaire, slack *Slack) {
 	}
 	if ready == false {
 		if err := standup.Machine.Transition("complete"); err != nil {
-			log.Printf("Error transitioning to complete? from ready?: %v", err)
+			log.Printf("Error transitioning to complete?: %v", err)
 		}
 		return
 	}
