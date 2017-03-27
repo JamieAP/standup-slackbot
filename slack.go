@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/nlopes/slack"
 	"github.com/satori/go.uuid"
-	"github.com/pkg/errors"
 )
 
 type QuestionResponse struct {
@@ -65,12 +65,12 @@ func (s *Slack) GetChannelMembers(channelId string) ([]string, error) {
 	return channel.Members, nil
 }
 
-func (s *Slack) AskQuestion(member string, question string) QuestionResponse {
+func (s *Slack) AskQuestion(member string, question string, ctx context.Context) QuestionResponse {
 	respChan := make(chan QuestionResponse, 0)
 	if err := s.SendMessage(member, question); err != nil {
 		return QuestionResponse{err: err}
 	}
-	questionSentAt := time.Now()
+	questionSentAt := time.Now() // in theory the user could reply before we get here, in practice it's unlikely
 	channel, err := s.GetChannelForMemberIm(member)
 	if err != nil {
 		return QuestionResponse{err: err}
@@ -89,8 +89,9 @@ func (s *Slack) AskQuestion(member string, question string) QuestionResponse {
 	case resp := <-respChan:
 		s.RemoveMessageEventHandler(handlerUuid)
 		return resp
-	case <-time.After(1 * time.Hour):
-		return QuestionResponse{err: errors.New("Member did not reply in time")}
+	case <-ctx.Done():
+		s.RemoveMessageEventHandler(handlerUuid)
+		return QuestionResponse{err: fmt.Errorf("Context cancelled: %v", ctx.Err())}
 	}
 }
 

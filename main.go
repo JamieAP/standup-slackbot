@@ -1,16 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nlopes/slack"
 	"github.com/ryanfaerman/fsm"
 )
-
-
 
 func main() {
 	slack := &Slack{
@@ -62,7 +62,8 @@ func main() {
 }
 
 func BlockersState(member string, standup *StandupQuestionnaire, slack *Slack) {
-	resp := slack.AskQuestion(member, Blockers)
+	ctx, _ := context.WithTimeout(context.Background(), 1*time.Hour)
+	resp := slack.AskQuestion(member, Blockers, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s about blockers: %v", member, resp.err)
 		return
@@ -74,7 +75,8 @@ func BlockersState(member string, standup *StandupQuestionnaire, slack *Slack) {
 }
 
 func FinishedWhenState(member string, standup *StandupQuestionnaire, slack *Slack) {
-	resp := slack.AskQuestion(member, FinishedWhen)
+	ctx, _ := context.WithTimeout(context.Background(), 1*time.Hour)
+	resp := slack.AskQuestion(member, FinishedWhen, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s when they'll be finished: %v", member, resp.err)
 		return
@@ -86,7 +88,8 @@ func FinishedWhenState(member string, standup *StandupQuestionnaire, slack *Slac
 }
 
 func TodaysState(member string, standup *StandupQuestionnaire, slack *Slack) {
-	resp := slack.AskQuestion(member, Today)
+	ctx, _ := context.WithTimeout(context.Background(), 1*time.Hour)
+	resp := slack.AskQuestion(member, Today, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s about today: %v", member, resp.err)
 		return
@@ -98,7 +101,8 @@ func TodaysState(member string, standup *StandupQuestionnaire, slack *Slack) {
 }
 
 func YesterdayState(member string, standup *StandupQuestionnaire, slack *Slack) {
-	resp := slack.AskQuestion(member, Yesterday)
+	ctx, _ := context.WithTimeout(context.Background(), 1*time.Hour)
+	resp := slack.AskQuestion(member, Yesterday, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s about yesterday: %v", member, resp.err)
 		return
@@ -127,13 +131,15 @@ func ReadyState(member string, standup *StandupQuestionnaire, slack *Slack) {
 }
 
 func AskIfMemberReady(slack *Slack, member string) (bool, error) {
-	resp := slack.AskQuestion(member, AreYouReady)
+	ctx, _ := context.WithTimeout(context.Background(), 1*time.Hour)
+	resp := slack.AskQuestion(member, AreYouReady, ctx)
 	if resp.err != nil {
 		return false, fmt.Errorf("Error asking question: %v", resp.err)
 	}
 	msg := strings.ToLower(resp.msg.Text)
 	for msg != "yes" && msg != "no" {
-		resp = slack.AskQuestion(member, NotUnderstoodYesOrNo)
+		ctx, _ := context.WithCancel(ctx)
+		resp = slack.AskQuestion(member, NotUnderstoodYesOrNo, ctx)
 		if resp.err != nil {
 			return false, fmt.Errorf("Error asking question: %v", resp.err)
 		}
