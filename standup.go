@@ -119,17 +119,17 @@ func (s Standup) Start() map[string]*StandupQuestionnaire {
 				}
 				switch questions.CurrentState() {
 				case "ready?":
-					s.readyState(member, questions, s.Slack)
+					s.readyState(member, questions)
 				case "yesterday?":
-					s.yesterdayState(member, questions, s.Slack)
+					s.yesterdayState(member, questions)
 				case "today?":
-					s.todayState(member, questions, s.Slack)
+					s.todayState(member, questions)
 				case "finishedWhen?":
-					s.finishedWhenState(member, questions, s.Slack)
+					s.finishedWhenState(member, questions)
 				case "blockers?":
-					s.blockersState(member, questions, s.Slack)
+					s.blockersState(member, questions)
 				case "complete":
-					s.completeState(member, s.Slack)
+					s.completeState(member)
 					return
 				}
 			}
@@ -159,15 +159,15 @@ func (s Standup) waitForCompletion() {
 	}
 }
 
-func (s Standup) completeState(member string, slack *Slack) {
-	if _, err := slack.SendMessage(member, Done); err != nil {
+func (s Standup) completeState(member string) {
+	if _, err := s.Slack.SendMessage(member, Done); err != nil {
 		log.Printf("Error telling member %s standup is complete: %v", member, err)
 	}
 }
 
-func (s Standup) blockersState(member string, standup *StandupQuestionnaire, slack *Slack) {
+func (s Standup) blockersState(member string, standup *StandupQuestionnaire) {
 	ctx, _ := context.WithCancel(s.Context)
-	resp := slack.AskQuestion(member, Blockers, ctx)
+	resp := s.Slack.AskQuestion(member, Blockers, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s about blockers: %v", member, resp.err)
 		return
@@ -178,9 +178,9 @@ func (s Standup) blockersState(member string, standup *StandupQuestionnaire, sla
 	}
 }
 
-func (s Standup) finishedWhenState(member string, standup *StandupQuestionnaire, slack *Slack) {
+func (s Standup) finishedWhenState(member string, standup *StandupQuestionnaire) {
 	ctx, _ := context.WithCancel(s.Context)
-	resp := slack.AskQuestion(member, FinishedWhen, ctx)
+	resp := s.Slack.AskQuestion(member, FinishedWhen, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s when they'll be finished: %v", member, resp.err)
 		return
@@ -191,9 +191,9 @@ func (s Standup) finishedWhenState(member string, standup *StandupQuestionnaire,
 	}
 }
 
-func (s Standup) todayState(member string, standup *StandupQuestionnaire, slack *Slack) {
+func (s Standup) todayState(member string, standup *StandupQuestionnaire) {
 	ctx, _ := context.WithCancel(s.Context)
-	resp := slack.AskQuestion(member, Today, ctx)
+	resp := s.Slack.AskQuestion(member, Today, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s about today: %v", member, resp.err)
 		return
@@ -204,9 +204,9 @@ func (s Standup) todayState(member string, standup *StandupQuestionnaire, slack 
 	}
 }
 
-func (s Standup) yesterdayState(member string, standup *StandupQuestionnaire, slack *Slack) {
+func (s Standup) yesterdayState(member string, standup *StandupQuestionnaire) {
 	ctx, _ := context.WithCancel(s.Context)
-	resp := slack.AskQuestion(member, Yesterday, ctx)
+	resp := s.Slack.AskQuestion(member, Yesterday, ctx)
 	if resp.err != nil {
 		log.Printf("Error asking member %s about yesterday: %v", member, resp.err)
 		return
@@ -217,8 +217,8 @@ func (s Standup) yesterdayState(member string, standup *StandupQuestionnaire, sl
 	}
 }
 
-func (s Standup) readyState(member string, standup *StandupQuestionnaire, slack *Slack) {
-	ready, err := s.AskIfMemberReady(slack, member)
+func (s Standup) readyState(member string, standup *StandupQuestionnaire) {
+	ready, err := s.AskIfMemberReady(member)
 	if err != nil {
 		log.Printf("Error asking member %s if they are ready: %v", member, err)
 		return
@@ -234,16 +234,16 @@ func (s Standup) readyState(member string, standup *StandupQuestionnaire, slack 
 	}
 }
 
-func (s Standup) AskIfMemberReady(slack *Slack, member string) (bool, error) {
+func (s Standup) AskIfMemberReady(member string) (bool, error) {
 	ctx, _ := context.WithCancel(s.Context)
-	resp := slack.AskQuestion(member, AreYouReady, ctx)
+	resp := s.Slack.AskQuestion(member, AreYouReady, ctx)
 	if resp.err != nil {
 		return false, fmt.Errorf("Error asking question: %v", resp.err)
 	}
 	msg := strings.ToLower(resp.msg.Text)
 	for msg != "yes" && msg != "no" {
 		ctx, _ := context.WithCancel(ctx)
-		resp = slack.AskQuestion(member, NotUnderstoodYesOrNo, ctx)
+		resp = s.Slack.AskQuestion(member, NotUnderstoodYesOrNo, ctx)
 		if resp.err != nil {
 			return false, fmt.Errorf("Error asking question: %v", resp.err)
 		}
