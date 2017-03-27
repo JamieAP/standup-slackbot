@@ -56,7 +56,7 @@ func main() {
 		}
 		for {
 			<-time.After(1 * time.Minute)
-			now := time.Now()
+			now := time.Now().In(tz)
 
 			isWeekend := now.Weekday() < 1 || now.Weekday() > 5
 			if isWeekend {
