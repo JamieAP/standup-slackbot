@@ -25,9 +25,17 @@ type Slack struct {
 	messageEventHandlersLock sync.Mutex
 }
 
-func (s *Slack) StartRealTimeMessagingListener() {
+func (s *Slack) StartRealTimeMessagingListener(ctx context.Context) {
 	rtm := s.apiClient.NewRTM()
 	go rtm.ManageConnection()
+	go func(rtm *slack.RTM) {
+		select {
+		case <-ctx.Done():
+			if err := rtm.Disconnect(); err != nil {
+				log.Printf("Error disconnecting from RTM channel: %v", err)
+			}
+		}
+	}(rtm)
 	for msg := range rtm.IncomingEvents {
 		switch event := msg.Data.(type) {
 		case *slack.MessageEvent:
@@ -38,6 +46,9 @@ func (s *Slack) StartRealTimeMessagingListener() {
 			}()
 		case *slack.RTMError:
 			log.Printf("Error received on RTM channel: %v", event.Error())
+		case *slack.DisconnectedEvent:
+			log.Print("Disconnected from RTM channel")
+			return
 		}
 	}
 }
@@ -57,20 +68,29 @@ func (s *Slack) RemoveMessageEventHandler(uuid string) {
 	delete(s.messageEventHandlers, uuid)
 }
 
-func (s *Slack) GetChannelMembers(channelId string) ([]string, error) {
+func (s *Slack) GetChannelMembers(channelId string) (map[string]*slack.User, error) {
+	members := make(map[string]*slack.User)
 	channel, err := s.apiClient.GetChannelInfo(channelId)
 	if err != nil {
-		return []string{}, fmt.Errorf("Error fetching channel info: %v", err)
+		return members, fmt.Errorf("Error fetching channel info: %v", err)
 	}
-	return channel.Members, nil
+	for _, member := range channel.Members {
+		memberInfo, err := s.apiClient.GetUserInfo(member)
+		if err != nil {
+			return members, fmt.Errorf("Error getting member info for %s: %v", member, err)
+		}
+		members[member] = memberInfo
+	}
+
+	return members, nil
 }
 
 func (s *Slack) AskQuestion(member string, question string, ctx context.Context) QuestionResponse {
 	respChan := make(chan QuestionResponse, 0)
+	questionSentAt := time.Now()
 	if err := s.SendMessage(member, question); err != nil {
 		return QuestionResponse{err: err}
 	}
-	questionSentAt := time.Now() // in theory the user could reply before we get here, in practice it's unlikely
 	channel, err := s.GetChannelForMemberIm(member)
 	if err != nil {
 		return QuestionResponse{err: err}
