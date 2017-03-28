@@ -89,12 +89,12 @@ func (s *Slack) GetChannelMembers(channelId string) (map[string]*slack.User, err
 
 func (s *Slack) AskQuestion(member string, question string, ctx context.Context) QuestionResponse {
 	respChan := make(chan QuestionResponse, 0)
-	ts, err := s.SendMessage(member, question)
+	questionTs, err := s.SendMessage(member, question)
 	if err != nil {
 		return QuestionResponse{err: err}
 	}
 	handlerUuid := s.AddMessageEventHandler(func(event *slack.MessageEvent) {
-		timestamp, err := parseTimestamp(event.Timestamp)
+		eventTs, err := parseTimestamp(event.Timestamp)
 		if err != nil {
 			respChan <- QuestionResponse{err: err}
 			return
@@ -105,7 +105,7 @@ func (s *Slack) AskQuestion(member string, question string, ctx context.Context)
 		}
 		// due to Slack's timestamp precision, it's possible for time.After to return false if the messages are
 		// sent close together enough, thus !time.Before is used.
-		if event.Channel == *channel && event.User == member && !timestamp.Before(*ts) {
+		if event.Channel == *channel && event.User == member && !eventTs.Before(*questionTs) {
 			respChan <- QuestionResponse{msg: event.Msg}
 		}
 	})
