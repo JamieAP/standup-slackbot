@@ -75,7 +75,7 @@ func main() {
 				log.Fatalf("Error parsing standup start time: %v", err)
 			}
 
-			notTimeYet := now.Hour() < *hour || now.Minute() > *mins
+			notTimeYet := now.Hour() < *hour || now.Minute() < *mins
 			if notTimeYet {
 				continue
 			}
