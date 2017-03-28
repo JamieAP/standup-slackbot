@@ -48,13 +48,27 @@ func main() {
 		EnvVar: "TIME_ZONE",
 		Value:  "Europe/London",
 	})
+	doImmediately := app.Bool(cli.BoolOpt{
+		Name: "do-standup-immediately",
+		Value: false,
+		EnvVar: "DO_STANDUP_IMMEDIATELY",
+		Desc: "Should we do a standup immediately at launch?",
+	})
 	app.Action = func() {
 		var lastStandupDay *int = nil
 		tz, err := time.LoadLocation(*timeZone)
 		if err != nil {
 			log.Fatalf("Error getting location for timezone: %v", err)
 		}
+
 		for {
+			if *doImmediately && lastStandupDay == nil {
+				if err := DoStandup(*slackToken, *standupChannelName, *standupLengthMins); err != nil {
+					log.Fatalf("Error doing standup: %v", err)
+				}
+				continue
+			}
+
 			<-time.After(1 * time.Minute)
 			now := time.Now().In(tz)
 
