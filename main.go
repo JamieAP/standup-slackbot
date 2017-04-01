@@ -49,10 +49,10 @@ func main() {
 		Value:  "Europe/London",
 	})
 	doImmediately := app.Bool(cli.BoolOpt{
-		Name: "do-standup-immediately",
-		Value: false,
+		Name:   "do-standup-immediately",
+		Value:  false,
 		EnvVar: "DO_STANDUP_IMMEDIATELY",
-		Desc: "Should we do a standup immediately at launch?",
+		Desc:   "Should we do a standup immediately at launch?",
 	})
 	app.Action = func() {
 		var lastStandupDay *int = nil
@@ -62,22 +62,23 @@ func main() {
 		}
 
 		for {
+			now := time.Now().In(tz)
+			day := now.Day()
 			if *doImmediately && lastStandupDay == nil {
 				if err := DoStandup(*slackToken, *standupChannelName, *standupLengthMins); err != nil {
 					log.Fatalf("Error doing standup: %v", err)
 				}
+				lastStandupDay = &day
 				continue
 			}
 
+			// prevents busy waiting
 			<-time.After(1 * time.Minute)
-			now := time.Now().In(tz)
 
 			isWeekend := now.Weekday() < 1 || now.Weekday() > 5
 			if isWeekend {
 				continue
 			}
-
-			day := now.Day()
 
 			standupAlreadyDone := lastStandupDay != nil && *lastStandupDay == day
 			if standupAlreadyDone {
