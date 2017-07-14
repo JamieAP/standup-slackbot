@@ -27,17 +27,8 @@ type Slack struct {
 	BaseMessageParams        slack.PostMessageParameters
 }
 
-func (s *Slack) StartRealTimeMessagingListener(ctx context.Context) {
-	rtm := s.apiClient.NewRTM()
-	go rtm.ManageConnection()
-	go func(rtm *slack.RTM) {
-		select {
-		case <-ctx.Done():
-			if err := rtm.Disconnect(); err != nil {
-				log.Printf("Error disconnecting from RTM channel: %v", err)
-			}
-		}
-	}(rtm)
+func (s *Slack) StartRealTimeMessagingListener(ctx context.Context, standupIsOver *bool) {
+	rtm, s := connect(s, ctx)
 	for msg := range rtm.IncomingEvents {
 		switch event := msg.Data.(type) {
 		case *slack.MessageEvent:
@@ -49,10 +40,28 @@ func (s *Slack) StartRealTimeMessagingListener(ctx context.Context) {
 		case *slack.RTMError:
 			log.Printf("Error received on RTM channel: %v", event.Error())
 		case *slack.DisconnectedEvent:
-			log.Print("Disconnected from RTM channel")
-			return
+			if !*standupIsOver {
+				log.Printf("Reconnecting to RTM channel because standup is not over yet, standupIsOver: %+v.\n", *standupIsOver)
+				rtm, _ = connect(s, ctx)
+			} else {
+				log.Printf("Disconnected from RTM channel, completed: %+v", *standupIsOver)
+				return
+			}
 		}
 	}
+}
+func connect(s *Slack, ctx context.Context) (*slack.RTM, *Slack) {
+	rtm := s.apiClient.NewRTM()
+	go rtm.ManageConnection()
+	go func(rtm *slack.RTM) {
+		select {
+		case <-ctx.Done():
+			if err := rtm.Disconnect(); err != nil {
+				log.Printf("Error disconnecting from RTM channel: %v", err)
+			}
+		}
+	}(rtm)
+	return rtm, s
 }
 
 // returns a uuid identifying the event handler that can be used with RemoveMessageEventHandler
