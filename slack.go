@@ -56,12 +56,15 @@ func (s *Slack) StartRealTimeMessagingListener(ctx context.Context) {
 }
 
 // returns a uuid identifying the event handler that can be used with RemoveMessageEventHandler
-func (s *Slack) AddMessageEventHandler(handler func(event *slack.MessageEvent)) string {
+func (s *Slack) AddMessageEventHandler(handler func(event *slack.MessageEvent)) (string, error) {
 	s.messageEventHandlersLock.Lock()
 	defer s.messageEventHandlersLock.Unlock()
-	uuid := uuid.NewV4().String()
-	s.messageEventHandlers[uuid] = handler
-	return uuid
+	uuid, err := uuid.NewV4()
+	if err != nil {
+		return "", errors.Wrap(err, "error creating uuid")
+	}
+	s.messageEventHandlers[uuid.String()] = handler
+	return uuid.String(), nil
 }
 
 func (s *Slack) RemoveMessageEventHandler(uuid string) {
@@ -93,7 +96,7 @@ func (s *Slack) AskQuestion(member string, question string, ctx context.Context)
 	if err != nil {
 		return QuestionResponse{err: err}
 	}
-	handlerUuid := s.AddMessageEventHandler(func(event *slack.MessageEvent) {
+	handlerUuid, err := s.AddMessageEventHandler(func(event *slack.MessageEvent) {
 		eventTs, err := parseTimestamp(event.Timestamp)
 		if err != nil {
 			respChan <- QuestionResponse{err: err}
@@ -109,6 +112,9 @@ func (s *Slack) AskQuestion(member string, question string, ctx context.Context)
 			respChan <- QuestionResponse{msg: event.Msg}
 		}
 	})
+	if err != nil {
+		return QuestionResponse{err: err}
+	}
 	select {
 	case resp := <-respChan:
 		s.RemoveMessageEventHandler(handlerUuid)
